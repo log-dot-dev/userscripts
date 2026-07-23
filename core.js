@@ -36,6 +36,12 @@
     return `${aheadBy.toLocaleString()} ${commits} to ${branch} since this release`;
   }
 
+  function nextMinorTag(tag) {
+    const match = tag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+    if (!match) return null;
+    return `v${match[1]}.${Number(match[2]) + 1}.${match[3]}`;
+  }
+
   function defaultBranchFromRepositoryHtml(html) {
     const match = html.match(/"defaultBranch":"((?:\\.|[^"\\])*)"/);
     if (!match) return null;
@@ -56,6 +62,7 @@
     repositoryFromPath,
     compareUrl,
     commitLabel,
+    nextMinorTag,
     defaultBranchFromRepositoryHtml,
     commitCountFromComparisonHtml
   };

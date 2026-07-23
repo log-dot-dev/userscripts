@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GitHub Release Compare Restorer
 // @namespace    https://github.com/loganschultz
-// @version      1.1.0
-// @description  Show commits to the default branch since the latest release on GitHub repository pages.
+// @version      1.2.0
+// @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
 // @grant        none
@@ -15,6 +15,7 @@
   "use strict";
 
   const BANNER_ID = "release-compare-restorer";
+  const QUICK_RELEASE_ID = "quick-release-restorer";
 
   function repositoryFromPath(pathname) {
     const match = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
@@ -60,6 +61,12 @@
     return `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch} since this release`;
   }
 
+  function nextMinorTag(tag) {
+    const match = tag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+    if (!match) return null;
+    return `v${match[1]}.${Number(match[2]) + 1}.${match[3]}`;
+  }
+
   async function githubHtml(path) {
     const response = await fetch(path, { credentials: "same-origin" });
     if (!response.ok || response.url.includes("/login")) throw new Error(`GitHub request failed: ${response.status}`);
@@ -102,6 +109,53 @@
       : `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch} since ${release.tag}`;
     container.append(link);
     releaseLink.insertAdjacentElement("afterend", container);
+    return container;
+  }
+
+  function insertQuickRelease(after, repository, release, branch) {
+    document.getElementById(QUICK_RELEASE_ID)?.remove();
+    const nextTag = nextMinorTag(release.tag);
+    if (!nextTag) return;
+
+    const params = new URLSearchParams({
+      tag: nextTag,
+      target: branch,
+      title: nextTag,
+      quick_release: "1"
+    });
+    const button = document.createElement("a");
+    button.id = QUICK_RELEASE_ID;
+    button.className = "btn btn-sm mt-2 ml-4";
+    button.href = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new?${params}`;
+    button.title = `Create ${nextTag} from ${branch}`;
+    button.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.75.75 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>';
+    button.append(` Quick release ${nextTag}`);
+    after.insertAdjacentElement("afterend", button);
+  }
+
+  function generateNotesOnQuickReleaseForm() {
+    const params = new URLSearchParams(location.search);
+    if (params.get("quick_release") !== "1" || !location.pathname.endsWith("/releases/new")) return;
+
+    let clicked = false;
+    const tryClick = () => {
+      if (clicked) return true;
+      const button = [...document.querySelectorAll("button, input[type=button], input[type=submit]")].find((element) => {
+        const label = (element.textContent || element.value || "").trim().toLowerCase();
+        return label === "generate release notes";
+      });
+      if (!button || button.disabled) return false;
+      clicked = true;
+      button.click();
+      return true;
+    };
+
+    if (tryClick()) return;
+    const observer = new MutationObserver(() => {
+      if (tryClick()) observer.disconnect();
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => observer.disconnect(), 10000);
   }
 
   async function restore() {
@@ -124,7 +178,10 @@
         // The comparison link remains useful even when GitHub cannot load a count.
       }
 
-      if (isCurrentRepository(repository)) insertLink(latest.link, latest.release, branch, count);
+      if (isCurrentRepository(repository)) {
+        const comparison = insertLink(latest.link, latest.release, branch, count);
+        insertQuickRelease(comparison, repository, latest.release, branch);
+      }
     } catch {
       // Leave GitHub untouched if its page structure changes.
     }
@@ -143,5 +200,6 @@
   document.addEventListener("turbo:load", scheduleRestore);
   document.addEventListener("pjax:end", scheduleRestore);
   window.addEventListener("popstate", scheduleRestore);
+  generateNotesOnQuickReleaseForm();
   scheduleRestore();
 })();

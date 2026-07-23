@@ -5,6 +5,7 @@ const {
   repositoryFromPath,
   compareUrl,
   commitLabel,
+  nextMinorTag,
   defaultBranchFromRepositoryHtml,
   commitCountFromComparisonHtml
 } = require("../core.js");
@@ -33,6 +34,12 @@ test("formats the restored label", () => {
   assert.equal(commitLabel(1, "main"), "1 commit to main since this release");
   assert.equal(commitLabel(42, "main"), "42 commits to main since this release");
   assert.equal(commitLabel(null, "main"), "Compare with main");
+});
+
+test("bumps the middle component of a v-prefixed release tag", () => {
+  assert.equal(nextMinorTag("v1.1.1"), "v1.2.1");
+  assert.equal(nextMinorTag("v3.19.0"), "v3.20.0");
+  assert.equal(nextMinorTag("release-1.1.1"), null);
 });
 
 test("extracts private-session data from GitHub HTML", () => {

@@ -4,6 +4,8 @@ A small, public userscript collection. The first script adds a link under the la
 
 `N commits to <default branch> since <latest tag>`
 
+It also adds **Quick release vX.Y.Z**. The button opens GitHub's standard New Release form with the next tag (middle version component bumped), the default branch as target, the release title, and generated release notes prepared. Publishing remains a manual GitHub action.
+
 The link opens GitHub's normal three-dot comparison view: `<tag>...<default branch>`.
 
 ## Install with Tampermonkey
