@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         GitHub Release Compare Restorer
+// @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.2.0
+// @version      1.3.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle

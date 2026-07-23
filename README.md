@@ -1,4 +1,4 @@
-# Release Compare Restorer
+# GitHub Utilities
 
 A small, public userscript collection. The first script adds a link under the latest release on a GitHub repository's overview page:
 
