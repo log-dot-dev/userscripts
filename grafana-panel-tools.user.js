@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grafana Panel Tools
 // @namespace    https://github.com/loganschultz
-// @version      1.0.1
+// @version      1.0.2
 // @description  Copy a time-locked panel link or rendered panel image from Grafana dashboard panels.
 // @match        *://*/d/*
 // @run-at       document-idle
@@ -51,7 +51,21 @@
         width: 32px;
       }
       .${TOOLBAR_CLASS}__button:hover { color: var(--text-primary, var(--fgColor-default, #f0f3f6)); background: var(--background-secondary-hover, #353b45); }
-      .${TOOLBAR_CLASS}__button[aria-busy="true"] { cursor: progress; opacity: .65; }
+      .${TOOLBAR_CLASS}__button[aria-busy="true"] { cursor: progress; opacity: .8; }
+      .${TOOLBAR_CLASS}__button[aria-busy="true"] svg { display: none; }
+      .${TOOLBAR_CLASS}__button[aria-busy="true"]::after {
+        animation: ${TOOLBAR_CLASS}-spin .7s linear infinite;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        content: "";
+        height: 12px;
+        width: 12px;
+      }
+      .${TOOLBAR_CLASS}__button.is-success { color: var(--color-green, #3fb950); }
+      .${TOOLBAR_CLASS}__button.is-success svg { animation: ${TOOLBAR_CLASS}-check .22s ease-out; }
+      @keyframes ${TOOLBAR_CLASS}-spin { to { transform: rotate(360deg); } }
+      @keyframes ${TOOLBAR_CLASS}-check { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
     `;
     document.head.append(style);
   }
@@ -94,13 +108,30 @@
   }
 
   function setStatus(button, label) {
-    const original = button.getAttribute("aria-label");
+    const original = button.dataset.label;
     button.setAttribute("aria-label", label);
     button.title = label;
     setTimeout(() => {
       button.setAttribute("aria-label", original);
       button.title = original;
     }, 1800);
+  }
+
+  function setLoading(button, loading) {
+    button.toggleAttribute("aria-busy", loading);
+    button.disabled = loading;
+  }
+
+  function showSuccess(button, label) {
+    setLoading(button, false);
+    button.classList.add("is-success");
+    button.innerHTML = icon("M13.78 3.22a.75.75 0 0 1 0 1.06l-6.5 6.5a.75.75 0 0 1-1.06 0L2.97 7.53a.75.75 0 1 1 1.06-1.06l2.72 2.72 5.97-5.97a.75.75 0 0 1 1.06 0Z");
+    setStatus(button, label);
+    clearTimeout(Number(button.dataset.successTimer));
+    button.dataset.successTimer = String(setTimeout(() => {
+      button.classList.remove("is-success");
+      button.innerHTML = button.dataset.icon;
+    }, 1800));
   }
 
   function icon(path) {
@@ -114,23 +145,25 @@
     button.setAttribute("aria-label", label);
     button.title = label;
     button.innerHTML = icon(svgPath);
+    button.dataset.label = label;
+    button.dataset.icon = button.innerHTML;
     button.addEventListener("click", handler);
     return button;
   }
 
   async function copyImage(button, id) {
     try {
-      button.setAttribute("aria-busy", "true");
+      setLoading(button, true);
       const response = await fetch(imageUrl(id), { credentials: "same-origin" });
       if (!response.ok) throw new Error(`Render request failed: ${response.status}`);
       const image = await response.blob();
       if (!image.type.startsWith("image/")) throw new Error("Render request did not return an image");
       await navigator.clipboard.write([new ClipboardItem({ [image.type]: image })]);
-      setStatus(button, "Panel image copied");
+      showSuccess(button, "Panel image copied");
     } catch {
       setStatus(button, "Could not copy image");
     } finally {
-      button.removeAttribute("aria-busy");
+      setLoading(button, false);
     }
   }
 
@@ -150,10 +183,13 @@
         async (event) => {
           const button = event.currentTarget;
           try {
+            setLoading(button, true);
             await navigator.clipboard.writeText(panelUrl(id).toString());
-            setStatus(button, "Panel link copied");
+            showSuccess(button, "Panel link copied");
           } catch {
             setStatus(button, "Could not copy link");
+          } finally {
+            setLoading(button, false);
           }
         }
       ),
