@@ -1,8 +1,8 @@
 # GitHub Utilities
 
-A small, public userscript collection. The first script adds a link under the latest release on a GitHub repository's overview page:
+A small, public userscript collection. The first script adds a compact comparison icon beside the latest release and a Draft Release action on a GitHub repository's overview page.
 
-`N commits to <default branch> since <latest tag>`
+The comparison icon's tooltip shows the commits to the default branch since the latest tag.
 
 It also adds a compact **Draft vX.Y.Z** link. Before opening GitHub's standard New Release form, it builds a GitHub-style `## What's Changed` / `**Full Changelog**` description from linked pull requests in the authenticated comparison page, then passes that body to GitHub's form prefill. Publishing remains a manual GitHub action.
 

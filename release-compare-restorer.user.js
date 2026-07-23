@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.7.0
+// @version      1.8.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -21,16 +21,23 @@
     const style = document.createElement("style");
     style.id = `${BANNER_ID}-styles`;
     style.textContent = `
-      #${BANNER_ID} {
-        align-items: center;
-        display: flex;
-        font-size: 12px;
-        gap: 9px;
-        line-height: 18px;
-        margin: 6px 0 0 48px;
+      #${BANNER_ID} { margin: 12px 0 0 48px; width: calc(100% - 48px); }
+      #${BANNER_ID} .github-utilities__draft.Button {
+        justify-content: center;
+        min-height: 32px;
+        width: 100%;
       }
-      #${BANNER_ID} .github-utilities__separator { color: var(--fgColor-muted, #59636e); }
-      #${BANNER_ID} .github-utilities__draft.Button { min-height: 26px; }
+      .github-utilities__compare-icon {
+        align-items: center;
+        border-radius: 4px;
+        color: var(--fgColor-muted, #59636e);
+        cursor: pointer;
+        display: inline-flex;
+        margin-left: 7px;
+        padding: 2px;
+        vertical-align: -2px;
+      }
+      .github-utilities__compare-icon:hover { color: var(--fgColor-accent, #0969da); background: var(--bgColor-neutral-muted, #818b981f); }
     `;
     document.head.append(style);
   }
@@ -114,26 +121,35 @@
 
   function insertLink(releaseLink, repository, release, branch, count) {
     document.getElementById(BANNER_ID)?.remove();
+    releaseLink.querySelector(".github-utilities__compare-icon")?.remove();
     installStyles();
+
+    const compare = document.createElement("span");
+    compare.className = "github-utilities__compare-icon";
+    compare.setAttribute("role", "link");
+    compare.setAttribute("tabindex", "0");
+    compare.title = count === null
+      ? `Compare ${release.tag} with ${branch}`
+      : `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch} since ${release.tag}`;
+    compare.setAttribute("aria-label", compare.title);
+    compare.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 16" width="15" height="15" fill="currentColor"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>';
+    const openComparison = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      location.assign(compareUrl({ ...release, branch }));
+    };
+    compare.addEventListener("click", openComparison);
+    compare.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") openComparison(event);
+    });
+    releaseLink.querySelector(".d-flex")?.append(compare);
+
     const container = document.createElement("div");
     container.id = BANNER_ID;
     container.setAttribute("aria-label", "Release utilities");
 
-    const comparisonUrl = compareUrl({ ...release, branch });
-    const compare = document.createElement("a");
-    compare.className = "Link--secondary Link";
-    compare.href = comparisonUrl;
-    compare.title = `Compare ${release.tag} with ${branch}`;
-    compare.textContent = count === null
-      ? "Compare changes"
-      : `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch}`;
-    container.append(compare);
-
     const nextTag = nextMinorTag(release.tag);
-    if (!nextTag) {
-      releaseLink.insertAdjacentElement("afterend", container);
-      return;
-    }
+    if (!nextTag) return;
 
     const params = new URLSearchParams({
       tag: nextTag,
@@ -141,18 +157,12 @@
       title: nextTag,
       previous_tag: release.tag
     });
-    const separator = document.createElement("span");
-    separator.className = "github-utilities__separator";
-    separator.setAttribute("aria-hidden", "true");
-    separator.textContent = "·";
-    container.append(separator);
-
     const draft = document.createElement("a");
     draft.className = "github-utilities__draft Button Button--secondary Button--small";
     const releaseFormPath = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new`;
     draft.href = `${releaseFormPath}?${params}`;
     draft.title = `Open a pre-filled release draft for ${nextTag}`;
-    draft.innerHTML = `<span class="Button-content"><span class="Button-label">Draft ${nextTag}</span></span>`;
+    draft.innerHTML = `<span class="Button-content"><span class="Button-label">Draft ${nextTag} release</span></span>`;
     draft.addEventListener("click", async (event) => {
       event.preventDefault();
       draft.setAttribute("aria-disabled", "true");
