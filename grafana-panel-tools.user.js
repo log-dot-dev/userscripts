@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grafana Panel Tools
 // @namespace    https://github.com/loganschultz
-// @version      1.0.0
+// @version      1.0.1
 // @description  Copy a time-locked panel link or rendered panel image from Grafana dashboard panels.
 // @match        *://*/d/*
 // @run-at       document-idle
@@ -15,6 +15,13 @@
   "use strict";
 
   const TOOLBAR_CLASS = "grafana-panel-tools";
+  const PANEL_HOST_CLASS = `${TOOLBAR_CLASS}__host`;
+  const PANEL_SELECTOR = [
+    "[data-panelid]",
+    "[data-viz-panel-key]",
+    '[data-testid="panel-container"]',
+    '[data-testid^="panel-container-"]'
+  ].join(", ");
 
   function installStyles() {
     if (document.getElementById(`${TOOLBAR_CLASS}-styles`)) return;
@@ -29,7 +36,7 @@
         top: 8px;
         z-index: 10;
       }
-      [data-panelid]:hover > .${TOOLBAR_CLASS}, [data-panelid]:focus-within > .${TOOLBAR_CLASS} { display: flex; }
+      .${PANEL_HOST_CLASS}:hover > .${TOOLBAR_CLASS}, .${PANEL_HOST_CLASS}:focus-within > .${TOOLBAR_CLASS} { display: flex; }
       .${TOOLBAR_CLASS}__button {
         align-items: center;
         background: var(--background-secondary, var(--bgColor-neutral-muted, #2a2f38));
@@ -50,8 +57,12 @@
   }
 
   function panelId(panel) {
-    const id = panel.getAttribute("data-panelid");
-    return id && id !== "undefined" ? id : null;
+    const direct = panel.getAttribute("data-panelid") || panel.querySelector("[data-panelid]")?.getAttribute("data-panelid");
+    if (direct && direct !== "undefined") return direct;
+
+    const sceneKey = panel.getAttribute("data-viz-panel-key") || panel.querySelector("[data-viz-panel-key]")?.getAttribute("data-viz-panel-key");
+    const match = sceneKey?.match(/(?:^|[-_:])(\d+)$/);
+    return match?.[1] || null;
   }
 
   function absoluteTime(value, now) {
@@ -127,6 +138,7 @@
     if (panel.querySelector(`:scope > .${TOOLBAR_CLASS}`)) return;
     const id = panelId(panel);
     if (!id) return;
+    panel.classList.add(PANEL_HOST_CLASS);
     panel.style.position ||= "relative";
 
     const toolbar = document.createElement("div");
@@ -155,9 +167,9 @@
   }
 
   function install() {
-    if (!document.querySelector("[data-panelid]")) return;
+    if (!document.querySelector(PANEL_SELECTOR)) return;
     installStyles();
-    document.querySelectorAll("[data-panelid]").forEach(addToolbar);
+    document.querySelectorAll(PANEL_SELECTOR).forEach(addToolbar);
   }
 
   const observer = new MutationObserver(install);
