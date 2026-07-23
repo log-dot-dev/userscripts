@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.8.0
+// @version      1.8.1
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -21,7 +21,7 @@
     const style = document.createElement("style");
     style.id = `${BANNER_ID}-styles`;
     style.textContent = `
-      #${BANNER_ID} { margin: 12px 0 0 48px; width: calc(100% - 48px); }
+      #${BANNER_ID} { margin-top: 12px; width: 100%; }
       #${BANNER_ID} .github-utilities__draft.Button {
         justify-content: center;
         min-height: 32px;
