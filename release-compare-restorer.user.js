@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.5.0
+// @version      1.6.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -26,11 +26,12 @@
         align-items: center;
         display: flex;
         font-size: 12px;
-        gap: 7px;
+        gap: 9px;
         line-height: 18px;
         margin: 6px 0 0 48px;
       }
       #${BANNER_ID} .github-utilities__separator { color: var(--fgColor-muted, #59636e); }
+      #${BANNER_ID} .github-utilities__draft.Button { min-height: 26px; }
     `;
     document.head.append(style);
   }
@@ -139,6 +140,7 @@
       tag: nextTag,
       target: branch,
       title: nextTag,
+      previous_tag: release.tag,
       quick_release: "1"
     });
     const separator = document.createElement("span");
@@ -148,10 +150,10 @@
     container.append(separator);
 
     const draft = document.createElement("a");
-    draft.className = "Link--secondary Link";
+    draft.className = "github-utilities__draft Button Button--secondary Button--small";
     draft.href = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new?${params}`;
     draft.title = `Open a pre-filled release draft for ${nextTag}`;
-    draft.textContent = `Draft ${nextTag}`;
+    draft.innerHTML = `<span class="Button-content"><span class="Button-label">Draft ${nextTag}</span></span>`;
     draft.addEventListener("click", () => {
       sessionStorage.setItem(QUICK_RELEASE_CONTEXT_KEY, JSON.stringify({
         owner: repository.owner,
@@ -167,9 +169,19 @@
 
   function quickReleaseContext() {
     if (!location.pathname.endsWith("/releases/new")) return null;
+    const formRepository = location.pathname.match(/^\/([^/]+)\/([^/]+)\/releases\/new$/);
+    const params = new URLSearchParams(location.search);
+    if (formRepository && params.get("tag") && params.get("target") && params.get("previous_tag")) {
+      return {
+        owner: decodeURIComponent(formRepository[1]),
+        repo: decodeURIComponent(formRepository[2]),
+        previousTag: params.get("previous_tag"),
+        nextTag: params.get("tag"),
+        branch: params.get("target")
+      };
+    }
     try {
       const context = JSON.parse(sessionStorage.getItem(QUICK_RELEASE_CONTEXT_KEY));
-      const params = new URLSearchParams(location.search);
       return context?.owner && context.repo && params.get("tag") === context.nextTag ? context : null;
     } catch {
       return null;
@@ -183,11 +195,11 @@
       const title = item.querySelector(".markdown-title")?.textContent.trim();
       const author = item.querySelector(".commit-author")?.textContent.trim();
       const pullRequest = [...item.querySelectorAll('a[href*="/pull/"]')].find((link) => {
-        const match = link.getAttribute("href")?.match(new RegExp(`^/${repository.owner}/${repository.repo}/pull/(\\d+)$`, "i"));
+        const match = new URL(link.href).pathname.match(new RegExp(`^/${repository.owner}/${repository.repo}/pull/(\\d+)$`, "i"));
         return match && !seenPullRequests.has(match[1]);
       });
       if (!title || !author || !pullRequest) return [];
-      const number = pullRequest.getAttribute("href").match(/\/pull\/(\d+)$/)[1];
+      const number = new URL(pullRequest.href).pathname.match(/\/pull\/(\d+)$/)[1];
       seenPullRequests.add(number);
       return [{ title, author, number }];
     });
@@ -212,7 +224,8 @@
       const notes = releaseNotes(releaseChanges(html, context), context);
       const textarea = document.querySelector('textarea[name="release[body]"], textarea[name="body"], textarea');
       if (!textarea) throw new Error("Release description field not found");
-      textarea.value = notes;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setValue.call(textarea, notes);
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
       textarea.dispatchEvent(new Event("change", { bubbles: true }));
       sessionStorage.removeItem(QUICK_RELEASE_CONTEXT_KEY);
