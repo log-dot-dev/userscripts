@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Release Compare Restorer",
+  "version": "0.1.0",
+  "description": "Restores the release-to-default-branch comparison link on GitHub releases.",
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["core.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": ["https://api.github.com/*"]
+}
