@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.4.0
+// @version      1.5.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -15,8 +15,25 @@
   "use strict";
 
   const BANNER_ID = "release-compare-restorer";
-  const QUICK_RELEASE_ID = "quick-release-restorer";
   const QUICK_RELEASE_CONTEXT_KEY = "github-utilities-quick-release";
+
+  function installStyles() {
+    if (document.getElementById(`${BANNER_ID}-styles`)) return;
+    const style = document.createElement("style");
+    style.id = `${BANNER_ID}-styles`;
+    style.textContent = `
+      #${BANNER_ID} {
+        align-items: center;
+        display: flex;
+        font-size: 12px;
+        gap: 7px;
+        line-height: 18px;
+        margin: 6px 0 0 48px;
+      }
+      #${BANNER_ID} .github-utilities__separator { color: var(--fgColor-muted, #59636e); }
+    `;
+    document.head.append(style);
+  }
 
   function repositoryFromPath(pathname) {
     const match = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
@@ -95,28 +112,28 @@
     return releaseLink ? { link: releaseLink, release: releaseFromPath(new URL(releaseLink.href).pathname) } : null;
   }
 
-  function insertLink(releaseLink, release, branch, count) {
+  function insertLink(releaseLink, repository, release, branch, count) {
     document.getElementById(BANNER_ID)?.remove();
+    installStyles();
     const container = document.createElement("div");
     container.id = BANNER_ID;
-    container.className = "ml-4 pl-2 mt-1 text-small color-fg-muted";
+    container.setAttribute("aria-label", "Release utilities");
 
     const comparisonUrl = compareUrl({ ...release, branch });
-    const link = document.createElement("a");
-    link.className = "Link--secondary Link";
-    link.href = comparisonUrl;
-    link.textContent = count === null
-      ? `Compare ${release.tag} with ${branch}`
-      : `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch} since ${release.tag}`;
-    container.append(link);
-    releaseLink.insertAdjacentElement("afterend", container);
-    return container;
-  }
+    const compare = document.createElement("a");
+    compare.className = "Link--secondary Link";
+    compare.href = comparisonUrl;
+    compare.title = `Compare ${release.tag} with ${branch}`;
+    compare.textContent = count === null
+      ? "Compare changes"
+      : `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch}`;
+    container.append(compare);
 
-  function insertQuickRelease(after, repository, release, branch) {
-    document.getElementById(QUICK_RELEASE_ID)?.remove();
     const nextTag = nextMinorTag(release.tag);
-    if (!nextTag) return;
+    if (!nextTag) {
+      releaseLink.insertAdjacentElement("afterend", container);
+      return;
+    }
 
     const params = new URLSearchParams({
       tag: nextTag,
@@ -124,12 +141,18 @@
       title: nextTag,
       quick_release: "1"
     });
-    const button = document.createElement("a");
-    button.id = QUICK_RELEASE_ID;
-    button.className = "btn btn-sm mt-2 ml-4";
-    button.href = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new?${params}`;
-    button.title = `Create ${nextTag} from ${branch}`;
-    button.addEventListener("click", () => {
+    const separator = document.createElement("span");
+    separator.className = "github-utilities__separator";
+    separator.setAttribute("aria-hidden", "true");
+    separator.textContent = "·";
+    container.append(separator);
+
+    const draft = document.createElement("a");
+    draft.className = "Link--secondary Link";
+    draft.href = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new?${params}`;
+    draft.title = `Open a pre-filled release draft for ${nextTag}`;
+    draft.textContent = `Draft ${nextTag}`;
+    draft.addEventListener("click", () => {
       sessionStorage.setItem(QUICK_RELEASE_CONTEXT_KEY, JSON.stringify({
         owner: repository.owner,
         repo: repository.repo,
@@ -138,9 +161,8 @@
         branch
       }));
     });
-    button.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.75.75 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>';
-    button.append(` Quick release ${nextTag}`);
-    after.insertAdjacentElement("afterend", button);
+    container.append(draft);
+    releaseLink.insertAdjacentElement("afterend", container);
   }
 
   function quickReleaseContext() {
@@ -220,8 +242,7 @@
       }
 
       if (isCurrentRepository(repository)) {
-        const comparison = insertLink(latest.link, latest.release, branch, count);
-        insertQuickRelease(comparison, repository, latest.release, branch);
+        insertLink(latest.link, repository, latest.release, branch, count);
       }
     } catch {
       // Leave GitHub untouched if its page structure changes.
