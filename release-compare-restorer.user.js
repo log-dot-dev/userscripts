@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.3.1
+// @version      1.4.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -16,8 +16,7 @@
 
   const BANNER_ID = "release-compare-restorer";
   const QUICK_RELEASE_ID = "quick-release-restorer";
-  let generatedNotesTriggeredFor = null;
-  let generatedNotesObserverFor = null;
+  const QUICK_RELEASE_CONTEXT_KEY = "github-utilities-quick-release";
 
   function repositoryFromPath(pathname) {
     const match = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
@@ -130,43 +129,74 @@
     button.className = "btn btn-sm mt-2 ml-4";
     button.href = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new?${params}`;
     button.title = `Create ${nextTag} from ${branch}`;
+    button.addEventListener("click", () => {
+      sessionStorage.setItem(QUICK_RELEASE_CONTEXT_KEY, JSON.stringify({
+        owner: repository.owner,
+        repo: repository.repo,
+        previousTag: release.tag,
+        nextTag,
+        branch
+      }));
+    });
     button.innerHTML = '<svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.75.75 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>';
     button.append(` Quick release ${nextTag}`);
     after.insertAdjacentElement("afterend", button);
   }
 
-  function generateNotesOnQuickReleaseForm() {
-    const params = new URLSearchParams(location.search);
-    if (params.get("quick_release") !== "1" || !location.pathname.endsWith("/releases/new")) return;
-    const formUrl = location.href;
-    if (generatedNotesTriggeredFor === formUrl || generatedNotesObserverFor === formUrl) return;
+  function quickReleaseContext() {
+    if (!location.pathname.endsWith("/releases/new")) return null;
+    try {
+      const context = JSON.parse(sessionStorage.getItem(QUICK_RELEASE_CONTEXT_KEY));
+      const params = new URLSearchParams(location.search);
+      return context?.owner && context.repo && params.get("tag") === context.nextTag ? context : null;
+    } catch {
+      return null;
+    }
+  }
 
-    const tryClick = () => {
-      const button = [...document.querySelectorAll("button, a, input[type=button], input[type=submit]")].find((element) => {
-        const label = (element.textContent || element.value || element.getAttribute("aria-label") || element.title || "")
-          .trim()
-          .toLowerCase();
-        return label === "generate release notes" && element.getAttribute("aria-disabled") !== "true" && !element.disabled;
+  function releaseChanges(html, repository) {
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const seenPullRequests = new Set();
+    return [...parsed.querySelectorAll(".js-commits-list-item")].flatMap((item) => {
+      const title = item.querySelector(".markdown-title")?.textContent.trim();
+      const author = item.querySelector(".commit-author")?.textContent.trim();
+      const pullRequest = [...item.querySelectorAll('a[href*="/pull/"]')].find((link) => {
+        const match = link.getAttribute("href")?.match(new RegExp(`^/${repository.owner}/${repository.repo}/pull/(\\d+)$`, "i"));
+        return match && !seenPullRequests.has(match[1]);
       });
-      if (!button || button.disabled) return false;
-      generatedNotesTriggeredFor = formUrl;
-      button.click();
-      return true;
-    };
-
-    if (tryClick()) return;
-    generatedNotesObserverFor = formUrl;
-    const observer = new MutationObserver(() => {
-      if (tryClick()) {
-        generatedNotesObserverFor = null;
-        observer.disconnect();
-      }
+      if (!title || !author || !pullRequest) return [];
+      const number = pullRequest.getAttribute("href").match(/\/pull\/(\d+)$/)[1];
+      seenPullRequests.add(number);
+      return [{ title, author, number }];
     });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => {
-      generatedNotesObserverFor = null;
-      observer.disconnect();
-    }, 10000);
+  }
+
+  function releaseNotes(changes, context) {
+    const bullets = changes.length
+      ? changes.map(({ title, author, number }) => `* ${title} by @${author} in https://github.com/${context.owner}/${context.repo}/pull/${number}`).join("\n")
+      : "* No linked pull requests found in this comparison.";
+    const changelog = `https://github.com/${context.owner}/${context.repo}/compare/${encodeURIComponent(context.previousTag)}...${encodeURIComponent(context.nextTag)}`;
+    return `## What's Changed\n${bullets}\n\n**Full Changelog**: ${changelog}`;
+  }
+
+  async function fillQuickReleaseDescription() {
+    const context = quickReleaseContext();
+    if (!context || document.documentElement.dataset.githubUtilitiesNotesFilled === context.nextTag) return;
+    document.documentElement.dataset.githubUtilitiesNotesFilled = context.nextTag;
+
+    try {
+      const range = `${encodeURIComponent(context.previousTag)}...${encodeURIComponent(context.branch)}`;
+      const html = await githubHtml(`/${encodeURIComponent(context.owner)}/${encodeURIComponent(context.repo)}/compare/commit-list?range=${range}`);
+      const notes = releaseNotes(releaseChanges(html, context), context);
+      const textarea = document.querySelector('textarea[name="release[body]"], textarea[name="body"], textarea');
+      if (!textarea) throw new Error("Release description field not found");
+      textarea.value = notes;
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+      sessionStorage.removeItem(QUICK_RELEASE_CONTEXT_KEY);
+    } catch {
+      document.documentElement.dataset.githubUtilitiesNotesFilled = "";
+    }
   }
 
   async function restore() {
@@ -209,10 +239,10 @@
   }
 
   document.addEventListener("turbo:load", scheduleRestore);
-  document.addEventListener("turbo:load", generateNotesOnQuickReleaseForm);
+  document.addEventListener("turbo:load", fillQuickReleaseDescription);
   document.addEventListener("pjax:end", scheduleRestore);
-  document.addEventListener("pjax:end", generateNotesOnQuickReleaseForm);
+  document.addEventListener("pjax:end", fillQuickReleaseDescription);
   window.addEventListener("popstate", scheduleRestore);
-  generateNotesOnQuickReleaseForm();
+  fillQuickReleaseDescription();
   scheduleRestore();
 })();
