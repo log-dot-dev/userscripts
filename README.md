@@ -1,8 +1,8 @@
 # Release Compare Restorer
 
-A small, public userscript collection. The first script restores a link on GitHub release pages:
+A small, public userscript collection. The first script adds a link under the latest release on a GitHub repository's overview page:
 
-`N commits to <default branch> since this release`
+`N commits to <default branch> since <latest tag>`
 
 The link opens GitHub's normal three-dot comparison view: `<tag>...<default branch>`.
 

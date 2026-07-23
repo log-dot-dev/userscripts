@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   releaseFromPath,
+  repositoryFromPath,
   compareUrl,
   commitLabel,
   defaultBranchFromRepositoryHtml,
@@ -14,6 +15,11 @@ test("parses a release tag route, including encoded slash tags", () => {
   });
   assert.equal(releaseFromPath("/acme/widgets/releases"), null);
   assert.equal(releaseFromPath("/acme/widgets/releases/tag/release%2F2026-07" ).tag, "release/2026-07");
+});
+
+test("parses only a repository overview route", () => {
+  assert.deepEqual(repositoryFromPath("/acme/widgets"), { owner: "acme", repo: "widgets" });
+  assert.equal(repositoryFromPath("/acme/widgets/releases"), null);
 });
 
 test("builds an encoded GitHub comparison URL", () => {

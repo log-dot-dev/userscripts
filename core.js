@@ -16,6 +16,16 @@
     }
   }
 
+  function repositoryFromPath(pathname) {
+    const match = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
+    if (!match) return null;
+    try {
+      return { owner: decodeURIComponent(match[1]), repo: decodeURIComponent(match[2]) };
+    } catch {
+      return null;
+    }
+  }
+
   function compareUrl({ owner, repo, tag, branch }) {
     return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(tag)}...${encodeURIComponent(branch)}`;
   }
@@ -43,6 +53,7 @@
 
   const api = {
     releaseFromPath,
+    repositoryFromPath,
     compareUrl,
     commitLabel,
     defaultBranchFromRepositoryHtml,

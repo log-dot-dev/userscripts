@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GitHub Release Compare Restorer
 // @namespace    https://github.com/loganschultz
-// @version      1.0.1
-// @description  Restore “N commits to main since this release” on GitHub release pages.
+// @version      1.1.0
+// @description  Show commits to the default branch since the latest release on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
 // @grant        none
@@ -16,41 +16,14 @@
 
   const BANNER_ID = "release-compare-restorer";
 
-  function installStyles() {
-    if (document.getElementById(`${BANNER_ID}-styles`)) return;
-    const style = document.createElement("style");
-    style.id = `${BANNER_ID}-styles`;
-    style.textContent = `
-      #${BANNER_ID} {
-        align-items: center;
-        display: flex;
-        gap: 8px;
-        margin: 9px 0 17px;
-      }
-      #${BANNER_ID} .release-compare-restorer__icon {
-        color: var(--fgColor-muted, #59636e);
-        flex: 0 0 auto;
-      }
-      #${BANNER_ID} .release-compare-restorer__content { min-width: 0; }
-      #${BANNER_ID} .release-compare-restorer__headline {
-        color: var(--fgColor-accent, #0969da);
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1.4;
-        text-decoration: none;
-      }
-      #${BANNER_ID} .release-compare-restorer__headline:hover { text-decoration: underline; }
-      #${BANNER_ID} .release-compare-restorer__route {
-        color: var(--fgColor-muted, #59636e);
-        font-size: 12px;
-        margin-left: 2px;
-      }
-      #${BANNER_ID} .release-compare-restorer__route code {
-        color: inherit;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      }
-    `;
-    document.head.append(style);
+  function repositoryFromPath(pathname) {
+    const match = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
+    if (!match) return null;
+    try {
+      return { owner: decodeURIComponent(match[1]), repo: decodeURIComponent(match[2]) };
+    } catch {
+      return null;
+    }
   }
 
   function releaseFromPath(pathname) {
@@ -101,70 +74,57 @@
     );
   }
 
-  function isCurrentRelease(release) {
-    const current = releaseFromPath(location.pathname);
-    return current?.owner === release.owner && current.repo === release.repo && current.tag === release.tag;
+  function isCurrentRepository(repository) {
+    const current = repositoryFromPath(location.pathname);
+    return current?.owner === repository.owner && current.repo === repository.repo;
   }
 
-  function insertLink(release, branch, count) {
-    document.getElementById(BANNER_ID)?.remove();
-    const anchor = document.querySelector('[data-testid="release-header"], .release-header, main h1');
-    if (!anchor) return;
+  function latestRelease(repository) {
+    const releaseLink = [...document.querySelectorAll('a[href*="/releases/tag/"]')].find((link) => {
+      const release = releaseFromPath(new URL(link.href).pathname);
+      return release?.owner === repository.owner && release.repo === repository.repo;
+    });
+    return releaseLink ? { link: releaseLink, release: releaseFromPath(new URL(releaseLink.href).pathname) } : null;
+  }
 
-    installStyles();
+  function insertLink(releaseLink, release, branch, count) {
+    document.getElementById(BANNER_ID)?.remove();
     const container = document.createElement("div");
     container.id = BANNER_ID;
-    container.setAttribute("aria-label", "Release comparison");
-
-    const icon = document.createElement("span");
-    icon.className = "release-compare-restorer__icon";
-    icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1.5 2.75A.75.75 0 0 1 2.25 2h5.5a.75.75 0 0 1 .53.22l1.5 1.5a.75.75 0 0 0 .53.22h3.44a.75.75 0 0 1 .75.75v8.56a.75.75 0 0 1-.75.75H2.25a.75.75 0 0 1-.75-.75V2.75Zm1.5.75v9h10v-7H10a1.5 1.5 0 0 1-1.06-.44L7.44 3.5H3Z"></path></svg>';
-    container.append(icon);
-
-    const content = document.createElement("div");
-    content.className = "release-compare-restorer__content";
+    container.className = "ml-4 pl-2 mt-1 text-small color-fg-muted";
 
     const comparisonUrl = compareUrl({ ...release, branch });
-    const headline = document.createElement("a");
-    headline.className = "release-compare-restorer__headline";
-    headline.href = comparisonUrl;
-    headline.textContent = count === null ? `Compare this release with ${branch}` : commitLabel(count, branch);
-    content.append(headline);
-
-    const route = document.createElement("span");
-    route.className = "release-compare-restorer__route";
-    route.innerHTML = `(<code>${escapeHtml(release.tag)}</code> <span aria-hidden="true">→</span> <code>${escapeHtml(branch)}</code>)`;
-    content.append(route);
-    container.append(content);
-    anchor.insertAdjacentElement("afterend", container);
-  }
-
-  function escapeHtml(value) {
-    const element = document.createElement("span");
-    element.textContent = value;
-    return element.innerHTML;
+    const link = document.createElement("a");
+    link.className = "Link--secondary Link";
+    link.href = comparisonUrl;
+    link.textContent = count === null
+      ? `Compare ${release.tag} with ${branch}`
+      : `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch} since ${release.tag}`;
+    container.append(link);
+    releaseLink.insertAdjacentElement("afterend", container);
   }
 
   async function restore() {
     document.getElementById(BANNER_ID)?.remove();
-    const release = releaseFromPath(location.pathname);
-    if (!release) return;
+    const repository = repositoryFromPath(location.pathname);
+    if (!repository) return;
+    const latest = latestRelease(repository);
+    if (!latest) return;
 
     try {
-      const branch = await defaultBranch(release);
-      if (!branch || !isCurrentRelease(release)) return;
+      const branch = await defaultBranch(repository);
+      if (!branch || !isCurrentRepository(repository)) return;
 
       let count = null;
       try {
         count = commitCountFromComparisonHtml(
-          await githubHtml(compareUrl({ ...release, branch }))
+          await githubHtml(compareUrl({ ...latest.release, branch }))
         );
       } catch {
         // The comparison link remains useful even when GitHub cannot load a count.
       }
 
-      if (isCurrentRelease(release)) insertLink(release, branch, count);
+      if (isCurrentRepository(repository)) insertLink(latest.link, latest.release, branch, count);
     } catch {
       // Leave GitHub untouched if its page structure changes.
     }
