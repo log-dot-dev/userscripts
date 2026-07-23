@@ -16,6 +16,8 @@
 
   const BANNER_ID = "release-compare-restorer";
   const QUICK_RELEASE_ID = "quick-release-restorer";
+  let generatedNotesTriggeredFor = null;
+  let generatedNotesObserverFor = null;
 
   function repositoryFromPath(pathname) {
     const match = pathname.match(/^\/([^/]+)\/([^/]+)\/?$/);
@@ -136,26 +138,33 @@
   function generateNotesOnQuickReleaseForm() {
     const params = new URLSearchParams(location.search);
     if (params.get("quick_release") !== "1" || !location.pathname.endsWith("/releases/new")) return;
+    const formUrl = location.href;
+    if (generatedNotesTriggeredFor === formUrl || generatedNotesObserverFor === formUrl) return;
 
-    let clicked = false;
     const tryClick = () => {
-      if (clicked) return true;
       const button = [...document.querySelectorAll("button, input[type=button], input[type=submit]")].find((element) => {
         const label = (element.textContent || element.value || "").trim().toLowerCase();
         return label === "generate release notes";
       });
       if (!button || button.disabled) return false;
-      clicked = true;
+      generatedNotesTriggeredFor = formUrl;
       button.click();
       return true;
     };
 
     if (tryClick()) return;
+    generatedNotesObserverFor = formUrl;
     const observer = new MutationObserver(() => {
-      if (tryClick()) observer.disconnect();
+      if (tryClick()) {
+        generatedNotesObserverFor = null;
+        observer.disconnect();
+      }
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => observer.disconnect(), 10000);
+    setTimeout(() => {
+      generatedNotesObserverFor = null;
+      observer.disconnect();
+    }, 10000);
   }
 
   async function restore() {
@@ -198,7 +207,9 @@
   }
 
   document.addEventListener("turbo:load", scheduleRestore);
+  document.addEventListener("turbo:load", generateNotesOnQuickReleaseForm);
   document.addEventListener("pjax:end", scheduleRestore);
+  document.addEventListener("pjax:end", generateNotesOnQuickReleaseForm);
   window.addEventListener("popstate", scheduleRestore);
   generateNotesOnQuickReleaseForm();
   scheduleRestore();
