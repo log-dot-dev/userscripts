@@ -8,6 +8,15 @@ It also adds a compact **Draft vX.Y.Z** link. Before opening GitHub's standard N
 
 The link opens GitHub's normal three-dot comparison view: `<tag>...<default branch>`.
 
+## Grafana Panel Tools
+
+`grafana-panel-tools.user.js` adds two controls beside a hovered Grafana panel menu:
+
+- Copy a time-locked, panel-specific link.
+- Render the panel as a PNG and copy it to the clipboard.
+
+The image control requires Grafana Image Renderer to be enabled, just like Grafana's built-in generated-image flow.
+
 ## Install with Tampermonkey
 
 1. Install the Tampermonkey extension in Chrome.
