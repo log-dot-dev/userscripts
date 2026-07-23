@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grafana Panel Tools
 // @namespace    https://github.com/loganschultz
-// @version      1.0.2
+// @version      1.0.3
 // @description  Copy a time-locked panel link or rendered panel image from Grafana dashboard panels.
 // @match        *://*/d/*
 // @run-at       document-idle
@@ -64,6 +64,7 @@
       }
       .${TOOLBAR_CLASS}__button.is-success { color: var(--color-green, #3fb950); }
       .${TOOLBAR_CLASS}__button.is-success svg { animation: ${TOOLBAR_CLASS}-check .22s ease-out; }
+      .${TOOLBAR_CLASS}__button.is-error { color: var(--color-red, #f85149); }
       @keyframes ${TOOLBAR_CLASS}-spin { to { transform: rotate(360deg); } }
       @keyframes ${TOOLBAR_CLASS}-check { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
     `;
@@ -118,20 +119,30 @@
   }
 
   function setLoading(button, loading) {
-    button.toggleAttribute("aria-busy", loading);
+    if (loading) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
     button.disabled = loading;
   }
 
-  function showSuccess(button, label) {
+  function showResult(button, label, state, path) {
     setLoading(button, false);
-    button.classList.add("is-success");
-    button.innerHTML = icon("M13.78 3.22a.75.75 0 0 1 0 1.06l-6.5 6.5a.75.75 0 0 1-1.06 0L2.97 7.53a.75.75 0 1 1 1.06-1.06l2.72 2.72 5.97-5.97a.75.75 0 0 1 1.06 0Z");
+    button.classList.remove("is-success", "is-error");
+    button.classList.add(state);
+    button.innerHTML = icon(path);
     setStatus(button, label);
     clearTimeout(Number(button.dataset.successTimer));
     button.dataset.successTimer = String(setTimeout(() => {
-      button.classList.remove("is-success");
+      button.classList.remove("is-success", "is-error");
       button.innerHTML = button.dataset.icon;
     }, 1800));
+  }
+
+  function showSuccess(button, label) {
+    showResult(button, label, "is-success", "M13.78 3.22a.75.75 0 0 1 0 1.06l-6.5 6.5a.75.75 0 0 1-1.06 0L2.97 7.53a.75.75 0 1 1 1.06-1.06l2.72 2.72 5.97-5.97a.75.75 0 0 1 1.06 0Z");
+  }
+
+  function showError(button, label) {
+    showResult(button, label, "is-error", "M3.22 3.22a.75.75 0 0 1 1.06 0L8 6.94l3.72-3.72a.75.75 0 1 1 1.06 1.06L9.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06L8 9.06l-3.72 3.72a.75.75 0 1 1-1.06-1.06L6.94 8 3.22 4.28a.75.75 0 0 1 0-1.06Z");
   }
 
   function icon(path) {
@@ -161,7 +172,7 @@
       await navigator.clipboard.write([new ClipboardItem({ [image.type]: image })]);
       showSuccess(button, "Panel image copied");
     } catch {
-      setStatus(button, "Could not copy image");
+      showError(button, "Could not copy image");
     } finally {
       setLoading(button, false);
     }
@@ -187,7 +198,7 @@
             await navigator.clipboard.writeText(panelUrl(id).toString());
             showSuccess(button, "Panel link copied");
           } catch {
-            setStatus(button, "Could not copy link");
+            showError(button, "Could not copy link");
           } finally {
             setLoading(button, false);
           }
