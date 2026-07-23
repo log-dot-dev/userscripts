@@ -4,7 +4,7 @@ A small, public userscript collection. The first script adds a link under the la
 
 `N commits to <default branch> since <latest tag>`
 
-It also adds a compact **Draft vX.Y.Z** link. It opens GitHub's standard New Release form with the next tag (middle version component bumped), the default branch as target, and the release title. It fills the description in GitHub's familiar `## What's Changed` / `**Full Changelog**` format using linked pull requests from the authenticated comparison page. Publishing remains a manual GitHub action.
+It also adds a compact **Draft vX.Y.Z** link. Before opening GitHub's standard New Release form, it builds a GitHub-style `## What's Changed` / `**Full Changelog**` description from linked pull requests in the authenticated comparison page, then passes that body to GitHub's form prefill. Publishing remains a manual GitHub action.
 
 The link opens GitHub's normal three-dot comparison view: `<tag>...<default branch>`.
 

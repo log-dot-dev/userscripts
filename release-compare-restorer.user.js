@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.6.0
+// @version      1.7.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -15,7 +15,6 @@
   "use strict";
 
   const BANNER_ID = "release-compare-restorer";
-  const QUICK_RELEASE_CONTEXT_KEY = "github-utilities-quick-release";
 
   function installStyles() {
     if (document.getElementById(`${BANNER_ID}-styles`)) return;
@@ -140,8 +139,7 @@
       tag: nextTag,
       target: branch,
       title: nextTag,
-      previous_tag: release.tag,
-      quick_release: "1"
+      previous_tag: release.tag
     });
     const separator = document.createElement("span");
     separator.className = "github-utilities__separator";
@@ -151,41 +149,30 @@
 
     const draft = document.createElement("a");
     draft.className = "github-utilities__draft Button Button--secondary Button--small";
-    draft.href = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new?${params}`;
+    const releaseFormPath = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new`;
+    draft.href = `${releaseFormPath}?${params}`;
     draft.title = `Open a pre-filled release draft for ${nextTag}`;
     draft.innerHTML = `<span class="Button-content"><span class="Button-label">Draft ${nextTag}</span></span>`;
-    draft.addEventListener("click", () => {
-      sessionStorage.setItem(QUICK_RELEASE_CONTEXT_KEY, JSON.stringify({
-        owner: repository.owner,
-        repo: repository.repo,
-        previousTag: release.tag,
-        nextTag,
-        branch
-      }));
+    draft.addEventListener("click", async (event) => {
+      event.preventDefault();
+      draft.setAttribute("aria-disabled", "true");
+      draft.querySelector(".Button-label").textContent = "Preparing notes…";
+      try {
+        const range = `${encodeURIComponent(release.tag)}...${encodeURIComponent(branch)}`;
+        const html = await githubHtml(`/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/compare/commit-list?range=${range}`);
+        const notes = releaseNotes(releaseChanges(html, repository), {
+          ...repository,
+          previousTag: release.tag,
+          nextTag
+        });
+        params.set("body", notes);
+      } catch {
+        // GitHub still opens its standard pre-filled release form if notes cannot load.
+      }
+      location.assign(`${releaseFormPath}?${params}`);
     });
     container.append(draft);
     releaseLink.insertAdjacentElement("afterend", container);
-  }
-
-  function quickReleaseContext() {
-    if (!location.pathname.endsWith("/releases/new")) return null;
-    const formRepository = location.pathname.match(/^\/([^/]+)\/([^/]+)\/releases\/new$/);
-    const params = new URLSearchParams(location.search);
-    if (formRepository && params.get("tag") && params.get("target") && params.get("previous_tag")) {
-      return {
-        owner: decodeURIComponent(formRepository[1]),
-        repo: decodeURIComponent(formRepository[2]),
-        previousTag: params.get("previous_tag"),
-        nextTag: params.get("tag"),
-        branch: params.get("target")
-      };
-    }
-    try {
-      const context = JSON.parse(sessionStorage.getItem(QUICK_RELEASE_CONTEXT_KEY));
-      return context?.owner && context.repo && params.get("tag") === context.nextTag ? context : null;
-    } catch {
-      return null;
-    }
   }
 
   function releaseChanges(html, repository) {
@@ -211,27 +198,6 @@
       : "* No linked pull requests found in this comparison.";
     const changelog = `https://github.com/${context.owner}/${context.repo}/compare/${encodeURIComponent(context.previousTag)}...${encodeURIComponent(context.nextTag)}`;
     return `## What's Changed\n${bullets}\n\n**Full Changelog**: ${changelog}`;
-  }
-
-  async function fillQuickReleaseDescription() {
-    const context = quickReleaseContext();
-    if (!context || document.documentElement.dataset.githubUtilitiesNotesFilled === context.nextTag) return;
-    document.documentElement.dataset.githubUtilitiesNotesFilled = context.nextTag;
-
-    try {
-      const range = `${encodeURIComponent(context.previousTag)}...${encodeURIComponent(context.branch)}`;
-      const html = await githubHtml(`/${encodeURIComponent(context.owner)}/${encodeURIComponent(context.repo)}/compare/commit-list?range=${range}`);
-      const notes = releaseNotes(releaseChanges(html, context), context);
-      const textarea = document.querySelector('textarea[name="release[body]"], textarea[name="body"], textarea');
-      if (!textarea) throw new Error("Release description field not found");
-      const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
-      setValue.call(textarea, notes);
-      textarea.dispatchEvent(new Event("input", { bubbles: true }));
-      textarea.dispatchEvent(new Event("change", { bubbles: true }));
-      sessionStorage.removeItem(QUICK_RELEASE_CONTEXT_KEY);
-    } catch {
-      document.documentElement.dataset.githubUtilitiesNotesFilled = "";
-    }
   }
 
   async function restore() {
@@ -273,10 +239,7 @@
   }
 
   document.addEventListener("turbo:load", scheduleRestore);
-  document.addEventListener("turbo:load", fillQuickReleaseDescription);
   document.addEventListener("pjax:end", scheduleRestore);
-  document.addEventListener("pjax:end", fillQuickReleaseDescription);
   window.addEventListener("popstate", scheduleRestore);
-  fillQuickReleaseDescription();
   scheduleRestore();
 })();
