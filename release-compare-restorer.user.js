@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.3.0
+// @version      1.3.1
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -142,9 +142,11 @@
     if (generatedNotesTriggeredFor === formUrl || generatedNotesObserverFor === formUrl) return;
 
     const tryClick = () => {
-      const button = [...document.querySelectorAll("button, input[type=button], input[type=submit]")].find((element) => {
-        const label = (element.textContent || element.value || "").trim().toLowerCase();
-        return label === "generate release notes";
+      const button = [...document.querySelectorAll("button, a, input[type=button], input[type=submit]")].find((element) => {
+        const label = (element.textContent || element.value || element.getAttribute("aria-label") || element.title || "")
+          .trim()
+          .toLowerCase();
+        return label === "generate release notes" && element.getAttribute("aria-disabled") !== "true" && !element.disabled;
       });
       if (!button || button.disabled) return false;
       generatedNotesTriggeredFor = formUrl;
