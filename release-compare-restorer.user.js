@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.8.1
+// @version      1.8.2
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -210,12 +210,24 @@
     return `## What's Changed\n${bullets}\n\n**Full Changelog**: ${changelog}`;
   }
 
-  async function restore() {
+  let restoring = false;
+
+  async function restore(force = false) {
+    if (restoring) return;
+    if (!force && document.getElementById(BANNER_ID)) return;
+
+    restoring = true;
     document.getElementById(BANNER_ID)?.remove();
     const repository = repositoryFromPath(location.pathname);
-    if (!repository) return;
+    if (!repository) {
+      restoring = false;
+      return;
+    }
     const latest = latestRelease(repository);
-    if (!latest) return;
+    if (!latest) {
+      restoring = false;
+      return;
+    }
 
     try {
       const branch = await defaultBranch(repository);
@@ -235,21 +247,29 @@
       }
     } catch {
       // Leave GitHub untouched if its page structure changes.
+    } finally {
+      restoring = false;
     }
   }
 
   let scheduled = false;
-  function scheduleRestore() {
+  let forceRestore = false;
+  function scheduleRestore({ force = false } = {}) {
+    forceRestore ||= force;
     if (scheduled) return;
     scheduled = true;
     setTimeout(() => {
       scheduled = false;
-      restore();
+      const force = forceRestore;
+      forceRestore = false;
+      restore(force);
     }, 0);
   }
 
-  document.addEventListener("turbo:load", scheduleRestore);
-  document.addEventListener("pjax:end", scheduleRestore);
-  window.addEventListener("popstate", scheduleRestore);
-  scheduleRestore();
+  const observer = new MutationObserver(() => scheduleRestore());
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("turbo:load", () => scheduleRestore({ force: true }));
+  document.addEventListener("pjax:end", () => scheduleRestore({ force: true }));
+  window.addEventListener("popstate", () => scheduleRestore({ force: true }));
+  scheduleRestore({ force: true });
 })();

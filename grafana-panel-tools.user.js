@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grafana Panel Tools
 // @namespace    https://github.com/loganschultz
-// @version      1.0.3
+// @version      1.0.4
 // @description  Copy a time-locked panel link or rendered panel image from Grafana dashboard panels.
 // @match        *://*/d/*
 // @run-at       document-idle
@@ -213,14 +213,31 @@
     panel.append(toolbar);
   }
 
+  let installScheduled = false;
   function install() {
     if (!document.querySelector(PANEL_SELECTOR)) return;
     installStyles();
     document.querySelectorAll(PANEL_SELECTOR).forEach(addToolbar);
   }
 
-  const observer = new MutationObserver(install);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  document.addEventListener("visibilitychange", () => !document.hidden && install());
-  install();
+  function scheduleInstall() {
+    if (installScheduled) return;
+    installScheduled = true;
+    requestAnimationFrame(() => {
+      installScheduled = false;
+      install();
+    });
+  }
+
+  const observer = new MutationObserver(scheduleInstall);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-panelid", "data-viz-panel-key", "data-testid"],
+    childList: true,
+    subtree: true
+  });
+  document.addEventListener("visibilitychange", () => !document.hidden && scheduleInstall());
+  window.addEventListener("popstate", scheduleInstall);
+  window.addEventListener("hashchange", scheduleInstall);
+  scheduleInstall();
 })();
