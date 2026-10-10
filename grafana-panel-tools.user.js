@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grafana Panel Tools
 // @namespace    https://github.com/loganschultz
-// @version      1.0.4
+// @version      1.1.0
 // @description  Copy a time-locked panel link or rendered panel image from Grafana dashboard panels.
 // @match        *://*/d/*
 // @run-at       document-idle
@@ -68,7 +68,7 @@
       @keyframes ${TOOLBAR_CLASS}-spin { to { transform: rotate(360deg); } }
       @keyframes ${TOOLBAR_CLASS}-check { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
     `;
-    document.head.append(style);
+    (document.head || document.documentElement).append(style);
   }
 
   function panelId(panel) {
@@ -223,21 +223,73 @@
   function scheduleInstall() {
     if (installScheduled) return;
     installScheduled = true;
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       installScheduled = false;
       install();
-    });
+    }, 0);
   }
 
-  const observer = new MutationObserver(scheduleInstall);
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["data-panelid", "data-viz-panel-key", "data-testid"],
-    childList: true,
-    subtree: true
-  });
-  document.addEventListener("visibilitychange", () => !document.hidden && scheduleInstall());
-  window.addEventListener("popstate", scheduleInstall);
-  window.addEventListener("hashchange", scheduleInstall);
-  scheduleInstall();
+  function panelsNeedToolbar() {
+    return [...document.querySelectorAll(PANEL_SELECTOR)].some((panel) =>
+      panelId(panel) && !panel.querySelector(`:scope > .${TOOLBAR_CLASS}`)
+    );
+  }
+
+  function patchHistory() {
+    for (const method of ["pushState", "replaceState"]) {
+      const original = history[method];
+      if (!original || original.__grafanaPanelToolsPatched) continue;
+      const patched = function (...args) {
+        const result = original.apply(this, args);
+        scheduleInstall();
+        return result;
+      };
+      patched.__grafanaPanelToolsPatched = true;
+      history[method] = patched;
+    }
+  }
+
+  function start() {
+    // The userscript can run before <html> exists (early inject timing), in which
+    // case observing documentElement would throw and abort the whole script.
+    if (!document.documentElement) return false;
+
+    const observer = new MutationObserver(scheduleInstall);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-panelid", "data-viz-panel-key", "data-testid"],
+      childList: true,
+      subtree: true
+    });
+    document.addEventListener("visibilitychange", () => !document.hidden && scheduleInstall());
+    window.addEventListener("popstate", scheduleInstall);
+    window.addEventListener("hashchange", scheduleInstall);
+    patchHistory();
+
+    // Grafana is a single-page app: panels can render after client-side
+    // navigation without a reload, and the first render can be missed. Re-check
+    // on URL changes and whenever a panel is missing its toolbar.
+    let lastHref = location.href;
+    setInterval(() => {
+      if (location.href !== lastHref) {
+        lastHref = location.href;
+        scheduleInstall();
+        return;
+      }
+      if (panelsNeedToolbar()) scheduleInstall();
+    }, 1000);
+    for (const delay of [250, 1000, 2500]) setTimeout(scheduleInstall, delay);
+    scheduleInstall();
+    return true;
+  }
+
+  if (!start()) {
+    const readyObserver = new MutationObserver(() => {
+      if (start()) readyObserver.disconnect();
+    });
+    readyObserver.observe(document, { childList: true, subtree: true });
+    const readyInterval = setInterval(() => {
+      if (start()) clearInterval(readyInterval);
+    }, 50);
+  }
 })();
