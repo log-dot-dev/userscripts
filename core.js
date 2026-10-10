@@ -36,20 +36,31 @@
     return `${aheadBy.toLocaleString()} ${commits} to ${branch} since this release`;
   }
 
-  function nextMinorTag(tag) {
-    const match = tag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
-    if (!match) return null;
-    return `v${match[1]}.${Number(match[2]) + 1}.${match[3]}`;
+  function nextTag(tag) {
+    const semver = tag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+    if (semver) return `v${semver[1]}.${Number(semver[2]) + 1}.${semver[3]}`;
+    const trailing = tag.match(/^(.*?)(\d+)(\D*)$/);
+    if (!trailing) return null;
+    return `${trailing[1]}${Number(trailing[2]) + 1}${trailing[3]}`;
   }
 
   function defaultBranchFromRepositoryHtml(html) {
-    const match = html.match(/"defaultBranch":"((?:\\.|[^"\\])*)"/);
-    if (!match) return null;
-    try {
-      return JSON.parse(`"${match[1]}"`);
-    } catch {
-      return null;
+    const patterns = [
+      /"defaultBranch":"((?:\\.|[^"\\])*)"/,
+      /"refInfo":\{"name":"((?:\\.|[^"\\])*)"/,
+      /\/tree\/([^"\\/?#]+)/
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (!match) continue;
+      try {
+        const value = JSON.parse(`"${match[1]}"`);
+        if (value && value !== "HEAD") return value;
+      } catch {
+        if (match[1] && match[1] !== "HEAD") return match[1];
+      }
     }
+    return null;
   }
 
   function commitCountFromComparisonHtml(html) {
@@ -62,7 +73,7 @@
     repositoryFromPath,
     compareUrl,
     commitLabel,
-    nextMinorTag,
+    nextTag,
     defaultBranchFromRepositoryHtml,
     commitCountFromComparisonHtml
   };

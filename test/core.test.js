@@ -5,7 +5,7 @@ const {
   repositoryFromPath,
   compareUrl,
   commitLabel,
-  nextMinorTag,
+  nextTag,
   defaultBranchFromRepositoryHtml,
   commitCountFromComparisonHtml
 } = require("../core.js");
@@ -37,15 +37,28 @@ test("formats the restored label", () => {
 });
 
 test("bumps the middle component of a v-prefixed release tag", () => {
-  assert.equal(nextMinorTag("v1.1.1"), "v1.2.1");
-  assert.equal(nextMinorTag("v3.19.0"), "v3.20.0");
-  assert.equal(nextMinorTag("release-1.1.1"), null);
+  assert.equal(nextTag("v1.1.1"), "v1.2.1");
+  assert.equal(nextTag("v3.19.0"), "v3.20.0");
+});
+
+test("falls back to bumping the trailing number of a non-semver tag", () => {
+  assert.equal(nextTag("release-1.1.1"), "release-1.1.2");
+  assert.equal(nextTag("2026.08.19"), "2026.08.20");
+  assert.equal(nextTag("nightly"), null);
 });
 
 test("extracts private-session data from GitHub HTML", () => {
   assert.equal(
     defaultBranchFromRepositoryHtml('<script>{"defaultBranch":"release\\/2026"}</script>'),
     "release/2026"
+  );
+  assert.equal(
+    defaultBranchFromRepositoryHtml('<script>{"refInfo":{"name":"main","refType":"branch"}}</script>'),
+    "main"
+  );
+  assert.equal(
+    defaultBranchFromRepositoryHtml('<a href="/acme/widgets/tree/develop/src">src</a>'),
+    "develop"
   );
   assert.equal(defaultBranchFromRepositoryHtml("<html></html>"), null);
   assert.equal(

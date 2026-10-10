@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github Utilities
 // @namespace    https://github.com/loganschultz
-// @version      1.8.2
+// @version      1.9.0
 // @description  Show commits since the latest release and prepare quick releases on GitHub repository pages.
 // @match        https://github.com/*
 // @run-at       document-idle
@@ -15,6 +15,7 @@
   "use strict";
 
   const BANNER_ID = "release-compare-restorer";
+  const COMPARE_ICON_CLASS = "github-utilities__compare-icon";
 
   function installStyles() {
     if (document.getElementById(`${BANNER_ID}-styles`)) return;
@@ -27,17 +28,18 @@
         min-height: 32px;
         width: 100%;
       }
-      .github-utilities__compare-icon {
+      .${COMPARE_ICON_CLASS} {
         align-items: center;
         border-radius: 4px;
         color: var(--fgColor-muted, #59636e);
         cursor: pointer;
         display: inline-flex;
+        flex: 0 0 auto;
         margin-left: 7px;
         padding: 2px;
         vertical-align: -2px;
       }
-      .github-utilities__compare-icon:hover { color: var(--fgColor-accent, #0969da); background: var(--bgColor-neutral-muted, #818b981f); }
+      .${COMPARE_ICON_CLASS}:hover { color: var(--fgColor-accent, #0969da); background: var(--bgColor-neutral-muted, #818b981f); }
     `;
     document.head.append(style);
   }
@@ -67,13 +69,63 @@
   }
 
   function defaultBranchFromRepositoryHtml(html) {
-    const match = html.match(/"defaultBranch":"((?:\\.|[^"\\])*)"/);
-    if (!match) return null;
-    try {
-      return JSON.parse(`"${match[1]}"`);
-    } catch {
-      return null;
+    const patterns = [
+      /"defaultBranch":"((?:\\.|[^"\\])*)"/,
+      /"refInfo":\{"name":"((?:\\.|[^"\\])*)"/,
+      /\/tree\/([^"\\/?#]+)/
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (!match) continue;
+      try {
+        const value = JSON.parse(`"${match[1]}"`);
+        if (value && value !== "HEAD") return value;
+      } catch {
+        if (match[1] && match[1] !== "HEAD") return match[1];
+      }
     }
+    return null;
+  }
+
+  function branchFromEmbeddedData() {
+    const scripts = document.querySelectorAll('script[type="application/json"], script[data-target*="embeddedData"]');
+    for (const script of scripts) {
+      const text = script.textContent;
+      if (!text || (!text.includes('"defaultBranch"') && !text.includes('"refInfo"'))) continue;
+      try {
+        const parsed = JSON.parse(text);
+        const payload = parsed.payload || parsed;
+        const branch = payload?.codeViewRepoRoute?.refInfo?.name
+          || payload?.codeViewLayoutRoute?.repo?.defaultBranch
+          || payload?.repo?.defaultBranch
+          || payload?.refInfo?.name;
+        if (branch) return branch;
+      } catch {
+        // Not JSON we can read; try the next script.
+      }
+    }
+    return null;
+  }
+
+  function branchFromRefSelector() {
+    const button = document.querySelector("#ref-picker-repos-header-ref-selector")
+      || document.querySelector('[data-icv-name="Switch branches/tags"]')
+      || document.querySelector(".overview-ref-selector");
+    if (!button) return null;
+    const label = button.getAttribute("aria-label");
+    if (label) {
+      const name = label.replace(/\s+branch$/i, "").trim();
+      if (name && name !== label) return name;
+    }
+    const text = button.querySelector(".ref-selector-button-text-container")
+      || button.querySelector('[data-component="text"]');
+    const value = text?.textContent?.trim();
+    return value || null;
+  }
+
+  function branchFromMeta() {
+    const meta = document.querySelector('meta[name="octolytics-dimension-repository_default_branch"]');
+    return meta?.content || null;
   }
 
   function commitCountFromComparisonHtml(html) {
@@ -86,10 +138,12 @@
     return `${count.toLocaleString()} ${count === 1 ? "commit" : "commits"} to ${branch} since this release`;
   }
 
-  function nextMinorTag(tag) {
-    const match = tag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
-    if (!match) return null;
-    return `v${match[1]}.${Number(match[2]) + 1}.${match[3]}`;
+  function nextTag(tag) {
+    const semver = tag.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+    if (semver) return `v${semver[1]}.${Number(semver[2]) + 1}.${semver[3]}`;
+    const trailing = tag.match(/^(.*?)(\d+)(\D*)$/);
+    if (!trailing) return null;
+    return `${trailing[1]}${Number(trailing[2]) + 1}${trailing[3]}`;
   }
 
   async function githubHtml(path) {
@@ -99,7 +153,7 @@
   }
 
   async function defaultBranch(release) {
-    const fromPage = document.querySelector('meta[name="octolytics-dimension-repository_default_branch"]')?.content;
+    const fromPage = branchFromRefSelector() || branchFromEmbeddedData() || branchFromMeta();
     if (fromPage) return fromPage;
     return defaultBranchFromRepositoryHtml(
       await githubHtml(`/${encodeURIComponent(release.owner)}/${encodeURIComponent(release.repo)}`)
@@ -119,13 +173,9 @@
     return releaseLink ? { link: releaseLink, release: releaseFromPath(new URL(releaseLink.href).pathname) } : null;
   }
 
-  function insertLink(releaseLink, repository, release, branch, count) {
-    document.getElementById(BANNER_ID)?.remove();
-    releaseLink.querySelector(".github-utilities__compare-icon")?.remove();
-    installStyles();
-
+  function buildCompareIcon(release, branch, count) {
     const compare = document.createElement("span");
-    compare.className = "github-utilities__compare-icon";
+    compare.className = COMPARE_ICON_CLASS;
     compare.setAttribute("role", "link");
     compare.setAttribute("tabindex", "0");
     compare.title = count === null
@@ -142,27 +192,37 @@
     compare.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") openComparison(event);
     });
-    releaseLink.querySelector(".d-flex")?.append(compare);
+    return compare;
+  }
+
+  function insertLink(releaseLink, repository, release, branch, count) {
+    document.getElementById(BANNER_ID)?.remove();
+    releaseLink.querySelector(`.${COMPARE_ICON_CLASS}`)?.remove();
+    installStyles();
+
+    const compare = buildCompareIcon(release, branch, count);
+    const infoHost = releaseLink.querySelector('[class*="releaseInfo"]') || releaseLink.querySelector(".d-flex") || releaseLink;
+    infoHost.append(compare);
 
     const container = document.createElement("div");
     container.id = BANNER_ID;
     container.setAttribute("aria-label", "Release utilities");
 
-    const nextTag = nextMinorTag(release.tag);
-    if (!nextTag) return;
+    const next = nextTag(release.tag);
+    if (!next) return;
 
     const params = new URLSearchParams({
-      tag: nextTag,
+      tag: next,
       target: branch,
-      title: nextTag,
+      title: next,
       previous_tag: release.tag
     });
     const draft = document.createElement("a");
     draft.className = "github-utilities__draft Button Button--secondary Button--small";
     const releaseFormPath = `/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/releases/new`;
     draft.href = `${releaseFormPath}?${params}`;
-    draft.title = `Open a pre-filled release draft for ${nextTag}`;
-    draft.innerHTML = `<span class="Button-content"><span class="Button-label">Draft ${nextTag} release</span></span>`;
+    draft.title = `Open a pre-filled release draft for ${next}`;
+    draft.innerHTML = `<span class="Button-content"><span class="Button-label">Draft ${next} release</span></span>`;
     draft.addEventListener("click", async (event) => {
       event.preventDefault();
       draft.setAttribute("aria-disabled", "true");
@@ -173,12 +233,15 @@
         const notes = releaseNotes(releaseChanges(html, repository), {
           ...repository,
           previousTag: release.tag,
-          nextTag
+          nextTag: next
         });
         params.set("body", notes);
+        draft.href = `${releaseFormPath}?${params}`;
       } catch {
         // GitHub still opens its standard pre-filled release form if notes cannot load.
       }
+      draft.removeAttribute("aria-disabled");
+      draft.querySelector(".Button-label").textContent = `Draft ${next} release`;
       location.assign(`${releaseFormPath}?${params}`);
     });
     container.append(draft);
@@ -212,24 +275,17 @@
 
   let restoring = false;
 
-  async function restore(force = false) {
+  async function restore() {
     if (restoring) return;
-    if (!force && document.getElementById(BANNER_ID)) return;
+    if (!isCurrentRepositorySettled()) return;
 
     restoring = true;
-    document.getElementById(BANNER_ID)?.remove();
-    const repository = repositoryFromPath(location.pathname);
-    if (!repository) {
-      restoring = false;
-      return;
-    }
-    const latest = latestRelease(repository);
-    if (!latest) {
-      restoring = false;
-      return;
-    }
-
     try {
+      const repository = repositoryFromPath(location.pathname);
+      if (!repository) return;
+      const latest = latestRelease(repository);
+      if (!latest) return;
+
       const branch = await defaultBranch(repository);
       if (!branch || !isCurrentRepository(repository)) return;
 
@@ -252,24 +308,31 @@
     }
   }
 
+  function isCurrentRepositorySettled() {
+    const repository = repositoryFromPath(location.pathname);
+    if (!repository) {
+      document.getElementById(BANNER_ID)?.remove();
+      return false;
+    }
+    return true;
+  }
+
   let scheduled = false;
-  let forceRestore = false;
-  function scheduleRestore({ force = false } = {}) {
-    forceRestore ||= force;
+  function scheduleRestore() {
     if (scheduled) return;
     scheduled = true;
     setTimeout(() => {
       scheduled = false;
-      const force = forceRestore;
-      forceRestore = false;
-      restore(force);
-    }, 0);
+      restore();
+    }, 50);
   }
 
-  const observer = new MutationObserver(() => scheduleRestore());
+  const observer = new MutationObserver(() => {
+    if (!document.getElementById(BANNER_ID)) scheduleRestore();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  document.addEventListener("turbo:load", () => scheduleRestore({ force: true }));
-  document.addEventListener("pjax:end", () => scheduleRestore({ force: true }));
-  window.addEventListener("popstate", () => scheduleRestore({ force: true }));
-  scheduleRestore({ force: true });
+  document.addEventListener("turbo:load", () => scheduleRestore());
+  document.addEventListener("pjax:end", () => scheduleRestore());
+  window.addEventListener("popstate", () => scheduleRestore());
+  scheduleRestore();
 })();
