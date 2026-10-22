@@ -17,6 +17,24 @@ The link opens GitHub's normal three-dot comparison view: `<tag>...<default bran
 
 The image control requires Grafana Image Renderer to be enabled, just like Grafana's built-in generated-image flow.
 
+## Inbound Packages
+
+`inbound-packages.user.js` adds a small **INBOUND** button (or `Alt+I`) to UPS and FedEx pages. It lists packages coming to you from **UPS My Choice** and **FedEx Delivery Manager** in one clean panel: carrier, shipper, status, ETA, tracking number, and a signature-required flag.
+
+It does not render either carrier's dashboard. It calls the JSON endpoints those dashboards use, in your already signed-in browser session, so there is no separate login, profile, or stored credential:
+
+- UPS `POST webapis.ups.com/upsmychoice/api/v1/ParcelInbound/GetInboundByAddressToken`
+- FedEx `POST api.fedex.com/track/v2/shipments/visibilitieslist`
+
+Notes:
+
+- Read-only. It never changes deliveries, holds, or addresses.
+- UPS address tokens are learned from the My Choice page on first use; open My Choice once after installing. The default address label is `Home`.
+- FedEx rows exclude already-delivered shipments; history stays out of the panel.
+- `COPY JSON` puts the current list on the clipboard.
+
+Install: open the raw [`inbound-packages.user.js`](https://raw.githubusercontent.com/log-dot-dev/userscripts/main/inbound-packages.user.js) URL in a browser with Tampermonkey.
+
 ## Install with Tampermonkey
 
 1. Install the Tampermonkey extension in Chrome.
